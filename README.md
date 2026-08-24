@@ -16,6 +16,9 @@ same capabilities as an MCP server instead of a skill.
   into the title (Apple TV+, Disney+, Max, Hulu, Prime, Peacock, …)
 - **"Put \<anything\> on YouTube"** — resolves search terms with yt-dlp,
   plays full-screen via AirPlay (optionally inside the YouTube app)
+- **"Play this video"** from almost any site — `play <url>` handles
+  direct media files (.mp4/.m3u8) and ~1,800 sites via yt-dlp (Vimeo,
+  Dailymotion, Twitch, X, news embeds). No DRM services
 - **Full remote** — navigation, select, menu, home, play/pause, volume,
   sleep/wake (HDMI-CEC turns the TV off too)
 - **Apps** — launch by friendly name, list installed apps
@@ -57,6 +60,7 @@ Restart your agent; it will pick up the skill automatically.
 ```
 atv.py watch "severance" [--service "disney+"]   # find + pull up a title
 atv.py youtube "veritasium" [--app]              # play YouTube (or in-app)
+atv.py play <url>                                # any video URL / site
 atv.py launch netflix                            # open an app
 atv.py open <deep-link-url>                      # route any URL to its app
 atv.py remote up|down|...|select|menu|home|play_pause|volume_up|suspend|...
@@ -78,8 +82,10 @@ Global flags like `--device <name>` go **before** the subcommand.
   update; the skill falls back to launch-and-type.
 - JustWatch lookups default to US/en; override with `ATV_JW_COUNTRY` /
   `ATV_JW_LANGUAGE`.
-- YouTube playback uses AirPlay 2: queued on the TV, continues after the
-  command exits; stream URLs expire after ~6h.
+- YouTube and `play` playback use AirPlay 2: queued on the TV, continues
+  after the command exits; stream URLs expire after ~6h. Some sites
+  (e.g. Vimeo) block yt-dlp extraction with a 403 — AirPlay from a
+  phone/browser is the fallback there.
 - tvOS may show an "Open in YouTube" confirmation for `--app` opens —
   a human must accept it with the physical remote.
 - Tested on tvOS 26 (Apple TV 4K gen 3). tvOS 13+ should work.

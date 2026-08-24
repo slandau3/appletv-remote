@@ -4,6 +4,7 @@
 #   "pyatv @ git+https://github.com/jlacivita/pyatv@8848ad3fd9ae46b8eb733bfc667b536a28f04c5a",
 #   "httpx>=0.27",
 #   "yt-dlp>=2024.1.1",
+#   "curl-cffi>=0.7",
 # ]
 # ///
 # NOTE: pinned to an exact commit of an unmerged fork because upstream
@@ -29,6 +30,9 @@ Usage:
   atv.py open <url>                    Open a deep link (see SKILL.md catalog)
   atv.py watch <title> [--service S]   Find via JustWatch and pull it up
   atv.py youtube <url|id|search terms> Play a YouTube video
+  atv.py play <url>                    Play any video URL: direct media
+                                       files (.mp4/.m3u8/...) or any site
+                                       yt-dlp supports (~1800). No DRM.
   atv.py type <text>                   Type into the focused on-screen field
   atv.py playing                       What's playing now
   atv.py power <wake|sleep>            Power via HDMI-CEC
@@ -391,6 +395,87 @@ async def cmd_power(args, device) -> None:
         atv.close()
 
 
+def _pick_stream(entry: dict, fallback_title: str) -> tuple[str, str]:
+    """Pick (title, stream_url) from a yt-dlp info entry.
+
+    Prefers the HLS master manifest: the Apple TV's native player
+    handles adaptive variants and separate audio renditions itself.
+    Falls back to the best progressive format (video+audio in one file).
+    """
+    formats = entry.get("formats", [])
+    hls = next((f for f in formats if f.get("manifest_url")), None)
+    if hls is not None:
+        return entry.get("title", fallback_title), hls["manifest_url"]
+    progressive = [
+        f for f in formats
+        if f.get("vcodec", "none") != "none"
+        and f.get("acodec", "none") != "none"
+        and f.get("url")
+    ]
+    if progressive:
+        best = max(progressive, key=lambda f: f.get("height") or 0)
+        return entry.get("title", fallback_title), best["url"]
+    # Some extractors put a direct URL on the entry without formats.
+    if entry.get("url") and not formats:
+        return entry.get("title", fallback_title), entry["url"]
+    raise RuntimeError(
+        "No playable stream found (unsupported or DRM-protected page)"
+    )
+
+
+def _page_resolve(url: str) -> tuple[str, str]:
+    """Resolve any video page URL to (title, stream_url).
+
+    Direct media files skip extraction; everything else goes through
+    yt-dlp, which supports ~1800 sites. DRM services (Netflix etc.)
+    cannot be extracted — use `watch`/`open` deep links for those."""
+    if re.search(r"\.(mp4|m3u8|mov|m4v|webm)(\?|#|$)", url, re.I):
+        return url, url
+    import yt_dlp
+
+    with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+        entry = (info.get("entries") or [info])[0]
+        return _pick_stream(entry, url)
+
+
+async def _play_stream(device: dict, title: str, stream_url: str) -> None:
+    """Queue a stream on the TV via AirPlay and confirm it started.
+
+    play_url blocks monitoring playback until the media ends — run it
+    as a task, give the TV a few seconds to start, then return.
+    Playback is queued on the TV itself and survives the CLI exiting."""
+    atv = await connect(device)
+    try:
+        play_task = asyncio.ensure_future(atv.stream.play_url(stream_url))
+
+        def _log_late_failure(task: asyncio.Task) -> None:
+            if not task.cancelled() and task.exception() is not None:
+                print(
+                    f"Playback ended with error: {task.exception()}",
+                    file=sys.stderr,
+                )
+
+        play_task.add_done_callback(_log_late_failure)
+        await asyncio.sleep(8)
+        if play_task.done() and play_task.exception() is not None:
+            sys.exit(1)  # the callback already printed the error
+        print(f"Playing: {title}")
+    finally:
+        atv.close()
+
+
+async def cmd_play(args, device) -> None:
+    try:
+        title, stream_url = await asyncio.get_running_loop(
+        ).run_in_executor(None, _page_resolve, args.url)
+    except Exception as e:
+        sys.exit(f"Error resolving video: {type(e).__name__}: {e}")
+    if title != args.url:
+        print(f"Found: {title}")
+    await _play_stream(device, title, stream_url)
+
+
 async def cmd_youtube(args, device) -> None:
     query = args.query.strip()
     video_id = None
@@ -406,12 +491,7 @@ async def cmd_youtube(args, device) -> None:
     import yt_dlp
 
     def _resolve(vid: str | None, terms: str):
-        """Return (video_id, title, stream_url) for an id or search terms.
-
-        Prefers the HLS master manifest: the Apple TV's native player
-        handles adaptive variants and separate audio renditions itself.
-        Falls back to the best progressive MP4 when no HLS is offered.
-        (Progressive MP4s are rare without a yt-dlp JS runtime.)"""
+        """Return (video_id, title, stream_url) for an id or search terms."""
         opts = {"quiet": True, "noplaylist": True}
         with yt_dlp.YoutubeDL(opts) as ydl:
             target = f"ytsearch1:{terms}" if vid is None else (
@@ -425,63 +505,32 @@ async def cmd_youtube(args, device) -> None:
                 # An 11-char search term misread as a bare video ID.
                 info = ydl.extract_info(f"ytsearch1:{terms}", download=False)
             entry = (info.get("entries") or [info])[0]
-            formats = entry.get("formats", [])
-            hls = next(
-                (f for f in formats if f.get("manifest_url")), None
-            )
-            if hls is not None:
-                return entry["id"], entry.get("title", "?"), hls["manifest_url"]
-            progressive = [
-                f for f in formats
-                if f.get("vcodec", "none") != "none"
-                and f.get("acodec", "none") != "none"
-                and f.get("url")
-            ]
-            if not progressive:
-                raise RuntimeError("No playable stream found for this video")
-            best = max(progressive, key=lambda f: f.get("height") or 0)
-            return entry["id"], entry.get("title", "?"), best["url"]
+            title, stream_url = _pick_stream(entry, "?")
+            return entry["id"], title, stream_url
 
     vid, title, stream_url = await asyncio.get_running_loop().run_in_executor(
         None, _resolve, video_id, query
     )
     print(f"Found: {title} ({vid})")
 
-    atv = await connect(device)
-    try:
-        if args.app:
-            # Open inside the YouTube app instead of the system player.
-            # tvOS may show an "Open in YouTube" confirmation that a human
-            # must accept with the physical remote — never blind-press
-            # select to confirm it.
-            url = f"youtube://www.youtube.com/watch?v={vid}"
+    if args.app:
+        # Open inside the YouTube app instead of the system player.
+        # tvOS may show an "Open in YouTube" confirmation that a human
+        # must accept with the physical remote — never blind-press
+        # select to confirm it.
+        url = f"youtube://www.youtube.com/watch?v={vid}"
+        atv = await connect(device)
+        try:
             await atv.apps.launch_app(url)
-            print(f"Opened in YouTube app: {url}")
-            print(
-                "(If a confirmation dialog appears, a human must accept it "
-                "with the physical remote.)"
-            )
-        else:
-            # play_url blocks monitoring playback until the media ends —
-            # run it as a task, give the TV a few seconds to start, then
-            # return. Playback is queued on the TV itself and survives
-            # the CLI exiting.
-            play_task = asyncio.ensure_future(atv.stream.play_url(stream_url))
-
-            def _log_late_failure(task: asyncio.Task) -> None:
-                if not task.cancelled() and task.exception() is not None:
-                    print(
-                        f"Playback ended with error: {task.exception()}",
-                        file=sys.stderr,
-                    )
-
-            play_task.add_done_callback(_log_late_failure)
-            await asyncio.sleep(8)
-            if play_task.done() and play_task.exception() is not None:
-                sys.exit(1)  # the callback already printed the error
-            print(f"Playing: {title}")
-    finally:
-        atv.close()
+        finally:
+            atv.close()
+        print(f"Opened in YouTube app: {url}")
+        print(
+            "(If a confirmation dialog appears, a human must accept it "
+            "with the physical remote.)"
+        )
+    else:
+        await _play_stream(device, title, stream_url)
 
 
 async def _justwatch_search(query: str) -> list[dict] | None:
@@ -630,6 +679,13 @@ def build_parser() -> argparse.ArgumentParser:
         "(tvOS may show a confirmation dialog a human must accept)",
     )
 
+    p = sub.add_parser("play", help="Play any video URL on the TV")
+    p.add_argument(
+        "url",
+        help="Direct media URL (.mp4/.m3u8/...) or a video page from any "
+        "site yt-dlp supports. DRM services are not supported.",
+    )
+
     p = sub.add_parser("watch", help="Find a title and pull it up")
     p.add_argument("title")
     p.add_argument("--service", help="e.g. 'netflix', 'disney+', 'apple tv'")
@@ -659,6 +715,7 @@ async def dispatch(args) -> None:
         "type": cmd_type,
         "power": cmd_power,
         "youtube": cmd_youtube,
+        "play": cmd_play,
         "watch": cmd_watch,
     }
     await device_handlers[args.command](args, device)

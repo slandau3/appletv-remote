@@ -39,6 +39,7 @@ Global flags like `--device <name>` go **before** the subcommand:
 | `watch <title> [--service S]` | Search JustWatch for the title and pull it up (optionally on a specific service, e.g. `--service "disney+"`) |
 | `youtube <url\|id\|search terms>` | Play a YouTube video in the system player (resolves search terms itself) |
 | `youtube <query> --app` | Open the video in the YouTube app instead |
+| `play <url>` | Play ANY video URL: direct media files (.mp4/.m3u8/...) or a page from ~1800 sites (Vimeo, Dailymotion, Twitch, X, news embeds). No DRM services |
 | `type <text>` | Type into the currently focused on-screen field |
 | `playing` | What's playing (state, title, position) |
 | `power wake\|sleep` | Wake / sleep (HDMI-CEC turns the TV off too) |
@@ -55,6 +56,12 @@ and ask before opening elsewhere.
 Plays full-screen in the system player. Only use `--app` if the user
 explicitly wants the YouTube app UI — tvOS shows an "Open in YouTube"
 confirmation that a human must accept with the physical remote.
+
+**"Play this video from <some site>"** → `play "<url>"`. Works for
+direct media URLs and any site yt-dlp supports. DRM services (Netflix,
+Disney+, Max, ...) cannot be extracted — use `watch`/`open` for those.
+Some sites (e.g. Vimeo) block extraction with a 403; if that happens,
+tell the user and suggest AirPlaying from their phone/browser instead.
 
 **"Open Netflix / go to Plex"** → `launch <app>`.
 
@@ -123,9 +130,9 @@ file is written owner-only (0600).
   back to finding a deep link via web search + `open`, or
   `launch` + `type`. Region defaults to US/en — override with
   `ATV_JW_COUNTRY` / `ATV_JW_LANGUAGE` env vars.
-- `youtube` (without `--app`) plays via AirPlay 2: playback is queued on
-  the TV and continues after the command exits. Stream URLs expire after
-  ~6 hours and are IP-bound — resolve fresh each time.
+- `youtube` (without `--app`) and `play` stream via AirPlay 2: playback
+  is queued on the TV and continues after the command exits. Stream
+  URLs expire after ~6 hours and are IP-bound — resolve fresh each time.
 - A `FetchAttentionState failed` warning at connect time is benign
   (fork quirk); commands still work.
 - The pyatv dependency is pinned to an unmerged fork fixing `play_url`
