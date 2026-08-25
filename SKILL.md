@@ -33,14 +33,18 @@ Global flags like `--device <name>` go **before** the subcommand:
 | `pair [name]` | Register a new TV (see "Registering a TV") |
 | `devices` | List paired TVs and which is default |
 | `use <name>` | Set the default TV |
-| `remote <action>` | Press a button: `up down left right select menu home play pause play_pause stop next previous volume_up volume_down suspend wakeup` |
+| `remote <action>` | Press a button: `up down left right select menu home top_menu home_hold control_center guide screensaver play pause play_pause stop next previous skip_forward skip_backward channel_up channel_down volume_up volume_down suspend wakeup` |
 | `launch <app>` | Open an app: `netflix youtube disney+ max hulu prime video peacock paramount+ plex spotify tv music settings app store` (or a bundle id) |
 | `open <url>` | Open a deep link — the way to pull up a *specific* title |
 | `watch <title> [--service S]` | Search JustWatch for the title and pull it up (optionally on a specific service, e.g. `--service "disney+"`) |
 | `youtube <url\|id\|search terms>` | Play a YouTube video in the system player (resolves search terms itself) |
 | `youtube <query> --app` | Open the video in the YouTube app instead |
 | `play <url>` | Play ANY video URL: direct media files (.mp4/.m3u8/...) or a page from ~1800 sites (Vimeo, Dailymotion, Twitch, X, news embeds). No DRM services |
-| `type <text>` | Type into the currently focused on-screen field |
+| `volume [0-100\|up\|down]` | Read, step, or set absolute volume |
+| `seek <seconds>` | Seek to a position in the current media |
+| `repeat <off\|track\|all>` / `shuffle <off\|songs\|albums>` | Playback modes |
+| `outputs [set <name>]` | List AirPlay audio outputs (HomePods) or route audio to one |
+| `type <text> [--clear]` | Type into the currently focused on-screen field |
 | `playing` | What's playing (state, title, position) |
 | `power wake\|sleep` | Wake / sleep (HDMI-CEC turns the TV off too) |
 | `apps` | List installed apps with bundle ids |
@@ -71,7 +75,8 @@ focused. You cannot see the screen, so prefer `watch`/`open` deep
 links over blind navigation whenever possible.
 
 **Playback control** → `remote play_pause`, `remote menu` (back),
-`remote home`. Check state with `playing`.
+`remote home`, `volume 40`, `seek 600`. Check state with `playing`
+(includes the frontmost app).
 
 ## Deep-link catalog (for `open`)
 

@@ -1,0 +1,46 @@
+# appletv-remote
+
+> Claude Code / opencode skill giving AI agents complete control of an
+> Apple TV over the local network: find and play any movie/show by name,
+> play any video URL, full remote, volume, apps, multi-TV. One-shot CLI,
+> no server. Built on pyatv (Companion + AirPlay 2). Tested on tvOS 26.
+
+Use this project when: a user wants an AI agent to control an Apple TV,
+watch specific titles, play YouTube/videos by name, or automate TV
+actions — without running an MCP server.
+
+## Usage
+
+Run `uv run <skill-dir>/scripts/atv.py <command>`. Key commands:
+
+- `watch "<title>" [--service S]` — JustWatch → deep link into the
+  title (Apple TV+, Disney+, Max, Hulu, Prime, Peacock, …).
+- `play <url>` — any direct media URL or ~1,800 sites via yt-dlp.
+- `youtube "<url|id|search>" [--app]` — YouTube playback.
+- `open <url>` — any tvOS deep link. `launch <app>` — open an app.
+- `remote <action>` — 26 buttons (navigation, media, control_center,
+  screensaver, channel/volume up/down, suspend/wakeup).
+- `volume [0-100|up|down]`, `seek <seconds>`, `repeat`, `shuffle`,
+  `outputs [set <name>]`, `type "text" [--clear]`, `playing`,
+  `power wake|sleep`, `apps`, `devices`, `scan`, `use <name>`.
+- `--device <name>` before the subcommand targets a non-default TV.
+- `pair [name]` registers a TV (PIN on screen; agents: ATV_PIN_FILE).
+
+## Setup
+
+Requires uv. Clone into ~/.claude/skills/appletv-remote, then
+`uv run .../scripts/atv.py pair` once. Credentials:
+~/.config/appletv-remote/devices.json (0600, private).
+
+## Known limitations
+
+- Netflix deep links unreliable since Sept 2025; use launch + type.
+- DRM services cannot be extracted for `play`; use `watch`.
+- Some sites (Vimeo) bot-block yt-dlp extraction (403).
+- pyatv pinned to fork commit fixing play_url on tvOS 26 (PR #2846).
+
+## Links
+
+- Repo: https://github.com/slandau3/appletv-remote
+- MCP variant: https://github.com/slandau3/appletv-mcp
+- pyatv: https://github.com/postlund/pyatv

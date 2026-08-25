@@ -23,9 +23,17 @@ Usage:
   atv.py devices                       List paired TVs and which is default
   atv.py use <name>                    Set the default TV
   atv.py remote <action>               up/down/left/right/select/menu/home/
-                                       play/pause/play_pause/stop/next/
-                                       previous/volume_up/volume_down/
-                                       suspend/wakeup
+                                       top_menu/home_hold/control_center/
+                                       guide/screensaver/play/pause/
+                                       play_pause/stop/next/previous/
+                                       skip_forward/skip_backward/
+                                       channel_up/channel_down/
+                                       volume_up/volume_down/suspend/wakeup
+  atv.py volume [0-100|up|down]        Get or set volume
+  atv.py seek <seconds>                Seek to a position in current media
+  atv.py repeat <off|track|all>        Set repeat mode
+  atv.py shuffle <off|songs|albums>    Set shuffle mode
+  atv.py outputs [set <name>]          List/set AirPlay audio outputs
   atv.py launch <app>                  Friendly name or bundle id
   atv.py open <url>                    Open a deep link (see SKILL.md catalog)
   atv.py watch <title> [--service S]   Find via JustWatch and pull it up
@@ -54,7 +62,7 @@ from pathlib import Path
 from pyatv import pair as atv_pair
 from pyatv import scan as atv_scan
 from pyatv import connect as atv_connect
-from pyatv.const import Protocol
+from pyatv.const import Protocol, RepeatState, ShuffleState
 
 CONFIG_DIR = Path.home() / ".config" / "appletv-remote"
 CONFIG_PATH = CONFIG_DIR / "devices.json"
@@ -91,9 +99,22 @@ APP_ALIASES = {
 
 REMOTE_ACTIONS = [
     "up", "down", "left", "right", "select", "menu", "home",
+    "top_menu", "home_hold", "control_center", "guide", "screensaver",
     "play", "pause", "play_pause", "stop", "next", "previous",
+    "skip_forward", "skip_backward", "channel_up", "channel_down",
     "volume_up", "volume_down", "suspend", "wakeup",
 ]
+
+REPEAT_MODES = {
+    "off": RepeatState.Off,
+    "track": RepeatState.Track,
+    "all": RepeatState.All,
+}
+SHUFFLE_MODES = {
+    "off": ShuffleState.Off,
+    "songs": ShuffleState.Songs,
+    "albums": ShuffleState.Albums,
+}
 
 JUSTWATCH_GRAPHQL = "https://apis.justwatch.com/graphql"
 
@@ -365,10 +386,84 @@ async def cmd_playing(_args, device) -> None:
     atv = await connect(device)
     try:
         p = await atv.metadata.playing()
+        app = None
+        try:
+            app = atv.metadata.app
+        except Exception:
+            pass
         print(
             f"state={p.device_state} title={p.title} artist={p.artist} "
-            f"album={p.album} position={p.position}/{p.total_time}s"
+            f"album={p.album} app={app} position={p.position}/{p.total_time}s"
         )
+    finally:
+        atv.close()
+
+
+async def cmd_volume(args, device) -> None:
+    atv = await connect(device)
+    try:
+        level = args.level
+        if level is None or level == "get":
+            print(f"volume={atv.audio.volume:.0f}")
+        elif level == "up":
+            await atv.audio.volume_up()
+            print(f"volume={atv.audio.volume:.0f}")
+        elif level == "down":
+            await atv.audio.volume_down()
+            print(f"volume={atv.audio.volume:.0f}")
+        else:
+            await atv.audio.set_volume(float(level))
+            print(f"volume set to {level}")
+    finally:
+        atv.close()
+
+
+async def cmd_seek(args, device) -> None:
+    atv = await connect(device)
+    try:
+        await atv.remote_control.set_position(int(args.seconds))
+        print(f"Seeked to {args.seconds}s")
+    finally:
+        atv.close()
+
+
+async def cmd_repeat(args, device) -> None:
+    atv = await connect(device)
+    try:
+        await atv.remote_control.set_repeat(REPEAT_MODES[args.mode])
+        print(f"Repeat: {args.mode}")
+    finally:
+        atv.close()
+
+
+async def cmd_shuffle(args, device) -> None:
+    atv = await connect(device)
+    try:
+        await atv.remote_control.set_shuffle(SHUFFLE_MODES[args.mode])
+        print(f"Shuffle: {args.mode}")
+    finally:
+        atv.close()
+
+
+async def cmd_outputs(args, device) -> None:
+    atv = await connect(device)
+    try:
+        if args.action == "set":
+            if not args.name:
+                sys.exit("Usage: atv.py outputs set <name>")
+            devices = atv.audio.output_devices
+            match = next(
+                (d for d in devices if args.name.lower() in d.name.lower()),
+                None,
+            )
+            if match is None:
+                names = ", ".join(d.name for d in devices) or "none"
+                sys.exit(f"No output matching '{args.name}'. Available: {names}")
+            await atv.audio.set_output_devices([match.identifier])
+            print(f"Audio output set to {match.name}")
+        else:
+            for d in atv.audio.output_devices:
+                print(f"{d.name} — {d.identifier}")
     finally:
         atv.close()
 
@@ -376,6 +471,8 @@ async def cmd_playing(_args, device) -> None:
 async def cmd_type(args, device) -> None:
     atv = await connect(device)
     try:
+        if args.clear:
+            await atv.keyboard.text_clear()
         await atv.keyboard.text_append(args.text)
         print(f"Typed: {args.text}")
     finally:
@@ -666,6 +763,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("type", help="Type into the focused field")
     p.add_argument("text")
+    p.add_argument(
+        "--clear",
+        action="store_true",
+        help="Clear the field before typing",
+    )
+
+    p = sub.add_parser("volume", help="Get or set volume")
+    p.add_argument(
+        "level",
+        nargs="?",
+        help="0-100, 'up', 'down', or omit to read current volume",
+    )
+
+    p = sub.add_parser("seek", help="Seek to a position in current media")
+    p.add_argument("seconds", type=int)
+
+    p = sub.add_parser("repeat", help="Set repeat mode")
+    p.add_argument("mode", choices=list(REPEAT_MODES))
+
+    p = sub.add_parser("shuffle", help="Set shuffle mode")
+    p.add_argument("mode", choices=list(SHUFFLE_MODES))
+
+    p = sub.add_parser("outputs", help="List or set AirPlay audio outputs")
+    p.add_argument("action", nargs="?", default="list", choices=["list", "set"])
+    p.add_argument("name", nargs="?", help="Output name when action=set")
 
     p = sub.add_parser("power", help="Power control")
     p.add_argument("action", choices=["wake", "sleep"])
@@ -717,6 +839,11 @@ async def dispatch(args) -> None:
         "youtube": cmd_youtube,
         "play": cmd_play,
         "watch": cmd_watch,
+        "volume": cmd_volume,
+        "seek": cmd_seek,
+        "repeat": cmd_repeat,
+        "shuffle": cmd_shuffle,
+        "outputs": cmd_outputs,
     }
     await device_handlers[args.command](args, device)
 
