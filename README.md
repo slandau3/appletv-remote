@@ -25,6 +25,9 @@ instead? That's the sibling project:
 [appletv-mcp](https://github.com/slandau3/appletv-mcp) — same
 capabilities, same pairing, MCP form.
 
+> [!TIP]
+> **Try it:** *"Please play Severance season 2 episode 1 on the TV."* — the agent finds the episode via JustWatch, deep-links straight into it on Apple TV+, and presses play. Or: *"Put the latest Veritasium video on"* (YouTube search → full-screen playback), *"Play this: \<any video URL\>"*, *"Volume 30, then pause in 10 minutes."*
+
 ## Why this one
 
 Other Apple TV integrations stop at "press a button." This one finds
